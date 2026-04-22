@@ -6,6 +6,9 @@
 /- Queries on annotated relations -/
 import Provenance.QueryAnnotatedDatabase
 
+/- Relational-algebra equivalence and optimizer transformations -/
+import Provenance.Equivalence
+
 /- Various semirings -/
 import Provenance.Semirings.Bool
 import Provenance.Semirings.BoolFunc
