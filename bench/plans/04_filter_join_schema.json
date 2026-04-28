@@ -1,0 +1,6 @@
+[
+	{"table_name":"r","column_name":"a","ordinal_position":1,"data_type":"INTEGER"},
+	{"table_name":"r","column_name":"b","ordinal_position":2,"data_type":"INTEGER"},
+	{"table_name":"s","column_name":"c","ordinal_position":1,"data_type":"INTEGER"},
+	{"table_name":"s","column_name":"d","ordinal_position":2,"data_type":"INTEGER"}
+]

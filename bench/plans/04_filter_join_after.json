@@ -1,0 +1,40 @@
+[
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "COMPARISON_JOIN",
+                "children": [
+                    {
+                        "name": "SEQ_SCAN",
+                        "children": [],
+                        "extra_info": {
+                            "Filters": "a>5",
+                            "Table": "memory.main.r",
+                            "Type": "Sequential Scan"
+                        }
+                    },
+                    {
+                        "name": "SEQ_SCAN",
+                        "children": [],
+                        "extra_info": {
+                            "Filters": "c>5",
+                            "Table": "memory.main.s",
+                            "Type": "Sequential Scan"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Join Type": "INNER",
+                    "Conditions": "(a = c)"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": [
+                "a",
+                "c"
+            ]
+        }
+    }
+]

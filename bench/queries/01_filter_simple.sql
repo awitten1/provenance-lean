@@ -1,0 +1,5 @@
+CREATE TABLE r(a INT, b INT);
+INSERT INTO r VALUES (1, 10), (6, 20), (7, 30);
+
+-- EXPLAIN:
+SELECT a, b FROM r WHERE a > 5

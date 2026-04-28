@@ -9,6 +9,9 @@ import Provenance.QueryAnnotatedDatabase
 /- Relational-algebra equivalence and optimizer transformations -/
 import Provenance.Equivalence
 
+/- DuckDB logical-plan ingestion (translation-validation pipeline) -/
+import Provenance.Plan
+
 /- Various semirings -/
 import Provenance.Semirings.Bool
 import Provenance.Semirings.BoolFunc

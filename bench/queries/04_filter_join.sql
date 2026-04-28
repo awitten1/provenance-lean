@@ -1,0 +1,7 @@
+CREATE TABLE r(a INT, b INT);
+CREATE TABLE s(c INT, d INT);
+INSERT INTO r VALUES (1, 10), (6, 20), (7, 30);
+INSERT INTO s VALUES (1, 100), (6, 200), (8, 300);
+
+-- EXPLAIN:
+SELECT a, c FROM r JOIN s ON a = c WHERE a > 5
