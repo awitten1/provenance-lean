@@ -1,5 +1,0 @@
-CREATE TABLE r(a INT, b INT, c INT);
-INSERT INTO r VALUES (1, 10, 100), (6, 20, 200), (7, 30, 300);
-
--- EXPLAIN:
-SELECT a FROM (SELECT a, b FROM r) sub WHERE a > 5

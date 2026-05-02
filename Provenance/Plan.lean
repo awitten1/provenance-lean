@@ -1,15 +1,9 @@
 /-
-  DuckDB logical plan ingestion.
+  DuckDB logical plan ingestion (minimal: SEQ_SCAN / FILTER / PROJECTION).
 
-  Parses two JSON shapes captured by `bench/capture.sh`:
-
-  * A *schema* JSON, an array of `{table_name, column_name, ordinal_position,
-    data_type}` rows from `information_schema.columns`.
-
-  * A *plan* JSON, a single-element array wrapping a recursive
-    `{name, children, extra_info}` tree.
-
-  No semantics yet — translation to `Provenance.Query` happens elsewhere.
+  Parses the JSON shape captured by `bench/capture.sh`: a single-element array
+  wrapping a recursive `{name, children, extra_info}` tree. No semantics yet —
+  translation to `Provenance.Query` happens elsewhere.
 -/
 
 import Lean.Data.Json
@@ -19,66 +13,16 @@ namespace Provenance.Plan
 
 open Lean (Json)
 
-/-! ## Schema -/
-
-structure Column where
-  name : String
-  ordinal : Nat
-  dataType : String
-  deriving Repr, Inhabited
-
-structure TableSchema where
-  name : String
-  columns : Array Column
-  deriving Repr, Inhabited
-
-abbrev Schema := Array TableSchema
-
-namespace Schema
-
-def tableNamed? (s : Schema) (table : String) : Option TableSchema :=
-  Array.find? (·.name == table) s
-
-/-- Resolve `(table, column)` to the column's 0-based index. -/
-def colIdx? (s : Schema) (table col : String) : Option Nat := do
-  let t ← s.tableNamed? table
-  t.columns.findIdx? (·.name == col)
-
-private def columnFromJson (j : Json) : Except String (String × Column) := do
-  let table ← j.getObjValAs? String "table_name"
-  let name  ← j.getObjValAs? String "column_name"
-  let ord   ← j.getObjValAs? Nat    "ordinal_position"
-  let ty    ← j.getObjValAs? String "data_type"
-  return (table, { name, ordinal := ord, dataType := ty })
-
-/-- Build a `Schema` from the JSON dumped by `bench/capture.sh`. Rows are
-already ordered by `(table_name, ordinal_position)` thanks to the SQL
-`ORDER BY` in the dump, so a single pass preserves the right column order. -/
-def fromJson? (j : Json) : Except String Schema := do
-  let rows ← j.getArr?
-  let mut tables : Array TableSchema := #[]
-  for row in rows do
-    let (table, col) ← columnFromJson row
-    match tables.findIdx? (·.name == table) with
-    | some i =>
-      let t := tables[i]!
-      tables := tables.set! i { t with columns := t.columns.push col }
-    | none =>
-      tables := tables.push { name := table, columns := #[col] }
-  return tables
-
-end Schema
-
 /-! ## Expressions
 
-The textual expressions DuckDB emits in `Expressions`/`Filters`/`Conditions`
-are tiny: comparisons between a column reference and a literal (or another
-column), optionally wrapped in parens, with no-op `CAST(<lit> AS <type>)`
-wrappers around literals. AND-conjunction is *structural* — DuckDB pre-splits
+The textual expressions DuckDB emits in `Expressions`/`Filters` are tiny:
+comparisons between a column reference and a literal (or another column),
+optionally wrapped in parens, with no-op `CAST(<lit> AS <type>)` wrappers
+around literals. AND-conjunction is *structural* — DuckDB pre-splits
 conjuncts into JSON arrays — so we never see `AND` inside a single string.
 
 We also reuse this parser for projection expressions, which in our current
-corpus are bare column names (e.g. `"a"`, `"c"`).
+corpus are bare column names (e.g. `"a"`, `"b"`).
 -/
 
 inductive Op
@@ -100,21 +44,6 @@ inductive Expr
 
 namespace Expr
 
-/-- Free column names appearing in an expression. -/
-def cols : Expr → List String
-  | .col n => [n]
-  | .int _ => []
-  | .cmp _ l r => l.cols ++ r.cols
-
-/-! ### Pragmatic string parser
-
-Handles exactly the shapes seen in our captured corpus:
-  * `(a > CAST(5 AS INTEGER))`, `a>5`, `(a = c)`, `a`, `5`
-
-Limitations: no AND/OR/NOT (structural), no arithmetic, no string literals,
-no nested CASTs.  Extend as new cases appear.
--/
-
 private def isIdentChar (c : Char) : Bool :=
   c.isAlphanum || c == '_'
 
@@ -133,10 +62,7 @@ private partial def stripOuterParens (s : String) : String := Id.run do
     else if c == ')' then depth := depth - 1
   if ok then return stripOuterParens inner else return s
 
-/-- Replace every `CAST(<atom> AS <type>)` with `<atom>`, preserving anything
-outside the cast wrapper. The matching close-paren is found by depth-counting,
-so this handles nested parens *inside* the cast (we don't see those today, but
-we get them for free). -/
+/-- Replace every `CAST(<atom> AS <type>)` with `<atom>`. -/
 private partial def stripCasts (s : String) : String := Id.run do
   let chars := s.toList
   let n := chars.length
@@ -145,10 +71,9 @@ private partial def stripCasts (s : String) : String := Id.run do
   while i < n do
     let prefixOk := i + 5 ≤ n ∧ String.ofList (chars.drop i |>.take 5) == "CAST("
     if prefixOk then
-      -- Find matching ')'.
       let mut depth := 1
       let mut j := i + 5
-      let mut endPos := n  -- past-the-end if unmatched
+      let mut endPos := n
       while j < n do
         let c := chars[j]!
         if c == '(' then depth := depth + 1
@@ -206,7 +131,6 @@ private def parseOperand (s : String) : Except String Expr := do
 top-level comparison operator is found. -/
 def parse (raw : String) : Except String Expr := do
   let s := stripOuterParens (stripCasts raw) |>.trim
-  -- Try multi-char operators first so e.g. ">=" isn't read as ">".
   let ops := ["<=", ">=", "<>", "!=", "<", ">", "="]
   match splitOnTopOp s ops with
   | none => parseOperand s
@@ -225,11 +149,9 @@ end Expr
 /-! ## Logical plan -/
 
 inductive LogicalPlan where
-  | seqScan        (table : String)
-  | filter         (preds : List Expr) (child : LogicalPlan)
-  | projection     (exprs : List Expr) (child : LogicalPlan)
-  | crossProduct   (l r : LogicalPlan)
-  | comparisonJoin (joinType : String) (conds : List Expr) (l r : LogicalPlan)
+  | seqScan    (table : String)
+  | filter     (preds : List Expr) (child : LogicalPlan)
+  | projection (exprs : List Expr) (child : LogicalPlan)
   deriving Repr, DecidableEq, Inhabited
 
 namespace LogicalPlan
@@ -282,14 +204,6 @@ partial def fromJson? (j : Json) : Except String LogicalPlan := do
     let [c] := kids | throw s!"PROJECTION expected 1 child, got {kids.length}"
     let exprs ← parseExprField? extra "Expressions"
     return LogicalPlan.projection exprs c
-  | "CROSS_PRODUCT" =>
-    let [l, r] := kids | throw s!"CROSS_PRODUCT expected 2 children, got {kids.length}"
-    return LogicalPlan.crossProduct l r
-  | "COMPARISON_JOIN" =>
-    let [l, r] := kids | throw s!"COMPARISON_JOIN expected 2 children, got {kids.length}"
-    let jt    ← extra.getObjValAs? String "Join Type"
-    let conds ← parseExprField? extra "Conditions"
-    return LogicalPlan.comparisonJoin jt conds l r
   | other => throw s!"unsupported plan node: {other}"
 
 /-- Parse the top-level array DuckDB emits: a 1-element array wrapping the
@@ -302,81 +216,7 @@ def fromTopJson? (j : Json) : Except String LogicalPlan := do
 
 end LogicalPlan
 
-/-! ## Syntactic equivalence under filter pushdown
-
-A normal form: every filter is pushed maximally down towards its scan, with
-AND-conjuncts split at every branching node by which side's columns each
-predicate references. Two plans are `equiv?` iff their normal forms are
-syntactically equal.
-
-This is sound but incomplete. It catches plain filter-pushdown (queries
-01–03 of the corpus). It will *not* validate plans involving equality
-propagation (query 04 — see `VALIDATION.md`), since that derives new
-predicates not present in `before`. -/
-
-namespace LogicalPlan
-
-/-- Output column names of a plan, in order. Assumes projection expressions
-are bare column references (true for our corpus). -/
-partial def outputCols (s : Schema) : LogicalPlan → List String
-  | .seqScan t =>
-    match s.tableNamed? t with
-    | some ts => ts.columns.toList.map (·.name)
-    | none    => []
-  | .filter _ c               => outputCols s c
-  | .projection es _          => es.flatMap Expr.cols
-  | .crossProduct l r         => outputCols s l ++ outputCols s r
-  | .comparisonJoin _ _ l r   => outputCols s l ++ outputCols s r
-
-/-- Walk the plan, pushing each pending predicate as far down as possible.
-At a branching node, predicates whose free columns lie entirely in one
-side's output go down that side; predicates that span both sides stay
-above the join as a `filter`. -/
-private partial def normalizeAux (s : Schema) (pending : List Expr) :
-    LogicalPlan → LogicalPlan
-  | .seqScan t =>
-    if pending.isEmpty then .seqScan t else .filter pending (.seqScan t)
-  | .filter ps c =>
-    normalizeAux s (pending ++ ps) c
-  | .projection es c =>
-    let projOuts := es.flatMap Expr.cols
-    let (pushable, stuck) := pending.partition fun p => p.cols.all projOuts.contains
-    let p := LogicalPlan.projection es (normalizeAux s pushable c)
-    if stuck.isEmpty then p else .filter stuck p
-  | .crossProduct l r =>
-    let lcols := outputCols s l
-    let rcols := outputCols s r
-    let (lP, rest)  := pending.partition fun p => p.cols.all lcols.contains
-    let (rP, stuck) := rest.partition    fun p => p.cols.all rcols.contains
-    let p := LogicalPlan.crossProduct (normalizeAux s lP l) (normalizeAux s rP r)
-    if stuck.isEmpty then p else .filter stuck p
-  | .comparisonJoin jt cond l r =>
-    let lcols := outputCols s l
-    let rcols := outputCols s r
-    let (lP, rest)  := pending.partition fun p => p.cols.all lcols.contains
-    let (rP, stuck) := rest.partition    fun p => p.cols.all rcols.contains
-    let p := LogicalPlan.comparisonJoin jt cond (normalizeAux s lP l) (normalizeAux s rP r)
-    if stuck.isEmpty then p else .filter stuck p
-
-def normalize (s : Schema) (plan : LogicalPlan) : LogicalPlan :=
-  normalizeAux s [] plan
-
-/-- Decide equivalence under filter pushdown by comparing normal forms. -/
-def equiv? (s : Schema) (a b : LogicalPlan) : Bool :=
-  decide (normalize s a = normalize s b)
-
-end LogicalPlan
-
-/-! ## File-level helpers -/
-
-def loadSchema (path : System.FilePath) : IO Schema := do
-  let txt ← IO.FS.readFile path
-  match Json.parse txt with
-  | .error e => throw <| IO.userError s!"json parse: {e}"
-  | .ok j =>
-    match Schema.fromJson? j with
-    | .error e => throw <| IO.userError s!"schema decode: {e}"
-    | .ok s    => return s
+/-! ## File-level helper -/
 
 def loadPlan (path : System.FilePath) : IO LogicalPlan := do
   let txt ← IO.FS.readFile path
