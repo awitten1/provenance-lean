@@ -76,34 +76,8 @@ inductive Query (T : Type) : ℕ → Type where
 | Rel   : (n : ℕ) → Relation T n → Query T n
 | Sel   : Filter T n → Query T n → Query T n
 | Prod {n₁ n₂ n : ℕ} {hn : n₁ + n₂ = n} : Query T n₁ → Query T n₂ → Query T n
-| Proj {n' n : ℕ} : Tuple (Term T n') n → Query T n' → Query T n
 
-def Query.evaluate (q: Query T n) (d: Database T): Relation T n := match q with
+def Query.toRelation (q: Query T n): Relation T n := match q with
 | Query.Rel _ r => r
-| Query.Sel φ q  => let r := evaluate q d
-                    @Multiset.filter _ φ.eval φ.evalDecidable r
-| @Query.Prod _ _ _ _ hn q₁ q₂ =>
-  let r₁ := evaluate q₁ d
-  let r₂ := evaluate q₂ d
-  (r₁ * r₂).cast hn
-| @Query.Proj _ _ _ ts q =>
-  let r := evaluate q d
-  Multiset.map (fun t => fun k => (ts k).eval t) r
-
-namespace Hidden
-inductive Prod (α : Type u) (β : Type v)
-  | mk : α → β → Prod α β
-
-#check Prod
-
-inductive Sum (α : Type u) (β : Type v) where
-  | inl : α → Sum α β
-  | inr : β → Sum α β
-
-inductive MyNat where
-  | zero : MyNat
-  | succ : MyNat → MyNat
-
-#check MyNat.succ (MyNat.zero)
-
-end Hidden
+| Query.Sel φ q  => @Multiset.filter _ φ.eval φ.evalDecidable q.toRelation
+| @Query.Prod _ _ _ _ hn q₁ q₂ => (q₁.toRelation * q₂.toRelation).cast hn

@@ -3,9 +3,6 @@
   Authors: Pierre Senellart
 -/
 
-/- Queries on annotated relations -/
-import Provenance.QueryAnnotatedDatabase
-
 /- Relational-algebra equivalence and optimizer transformations -/
 import Provenance.Equivalence
 
@@ -24,9 +21,6 @@ import Provenance.Semirings.Tropical
 import Provenance.Semirings.Viterbi
 import Provenance.Semirings.Which
 import Provenance.Semirings.Why
-
-/- Example -/
-import Provenance.Example
 
 /-!
 # Provenance in databases
@@ -49,13 +43,9 @@ the provenance-aware relational database system
   the algebraic structure underlying annotated database semantics, together with general
   theorems about it
 - `Provenance.Database` — tuples, relations, and plain databases
-- `Provenance.Query` — relational algebra (select, project, join, union, difference…)
+- `Provenance.Query` — relational algebra expressions
 - `Provenance.AnnotatedDatabase` — databases annotated with values in an m-semiring `K`
-- `Provenance.QueryAnnotatedDatabase` — semantics of relational algebra over annotated
-  databases via m-semiring operations
-- `Provenance.QueryRewriting` — alternative query evaluation by rewriting plain queries
-  on `T ⊕ K`; implements rules (R1)–(R5) of [Sen, Maniu & Senellart][sen2026provsql];
-  correctness proof partially formalised
+- `Provenance.Equivalence` — algebraic equivalence proofs over query expressions
 
 **Concrete m-semirings** (`Provenance.Semirings.*`)
 
@@ -74,8 +64,6 @@ the provenance-aware relational database system
 - `Provenance.Semirings.Lukasiewicz` — the Łukasiewicz (fuzzy logic) m-semiring over `ℚ ∩ [0,1]`
 - `Provenance.Semirings.Interval`, `Provenance.Semirings.IntervalUnion` — intervals and finite unions of intervals over a dense
   linear order, used for temporal databases
-
-See `Provenance.Example` for an example annotated database computation.
 
 ## References
 
