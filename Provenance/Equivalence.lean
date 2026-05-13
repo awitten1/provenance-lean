@@ -77,18 +77,21 @@ end BoolTerm
 
 namespace Filter
 
-/-- Lift a filter to a larger arity along `h : n₁ ≤ n`. -/
-def castLE (h: n₁ ≤ n) (φ: Filter T n₁) : Filter T n :=
-  fun tuple => φ (fun i => tuple (Fin.castLE h i))
+/-- Lift a left-side filter to the arity of a product. -/
+def castLE {n₁ n₂ n: ℕ} (hn: n₁ + n₂ = n) (φ: Filter T n₁) : Filter T n :=
+  fun tuple => φ (fun i => tuple (Fin.castLE (hn ▸ Nat.le_add_right n₁ n₂) i))
 
-instance castLEDecidable (h: n₁ ≤ n) (φ: Filter T n₁) [DecidablePred φ] :
-    DecidablePred (castLE h φ) :=
+instance castLEDecidable {n₁ n₂ n: ℕ} (hn: n₁ + n₂ = n)
+    (φ: Filter T n₁) [DecidablePred φ] : DecidablePred (castLE hn φ) :=
   fun tuple => by
     unfold castLE
-    exact inferInstanceAs (Decidable (φ (fun i => tuple (Fin.castLE h i))))
+    exact inferInstanceAs
+      (Decidable (φ (fun i => tuple (Fin.castLE (hn ▸ Nat.le_add_right n₁ n₂) i))))
 
-theorem castLE_pred (h: n₁ ≤ n) (φ: Filter T n₁) (u: Tuple T n) :
-    (Filter.castLE h φ) u = φ (fun i => u (Fin.castLE h i)) := by
+theorem castLE_pred {n₁ n₂ n: ℕ} (hn: n₁ + n₂ = n)
+    (φ: Filter T n₁) (u: Tuple T n) :
+    (Filter.castLE hn φ) u =
+      φ (fun i => u (Fin.castLE (hn ▸ Nat.le_add_right n₁ n₂) i)) := by
   rfl
 
 end Filter
@@ -101,17 +104,18 @@ def Equiv (q₁ q₂: Query T n) : Prop :=
 theorem Equiv.refl (q: Query T n) : Equiv q q := by
   rfl
 
-theorem Equiv.symm' {q₁ q₂: Query T n} (h: Equiv q₁ q₂) : Equiv q₂ q₁ :=
+theorem Equiv.symm {q₁ q₂: Query T n} (h: Equiv q₁ q₂) : Equiv q₂ q₁ :=
   Eq.symm h
 
-theorem Equiv.trans' {q₁ q₂ q₃: Query T n}
+theorem Equiv.trans {q₁ q₂ q₃: Query T n}
     (h₁₂: Equiv q₁ q₂) (h₂₃: Equiv q₂ q₃) : Equiv q₁ q₃ :=
   Eq.trans h₁₂ h₂₃
 
 theorem Equiv.sel {q₁ q₂: Query T n} (φ: Filter T n) [DecidablePred φ] :
     Equiv q₁ q₂ → Equiv (Sel φ q₁) (Sel φ q₂) := by
   intro h
-  unfold Equiv Query.toRelation
+  unfold Equiv
+  unfold Query.toRelation
   rw [h]
 
 theorem Equiv.prod {n₁ n₂ n: ℕ} {hn: n₁ + n₂ = n}
@@ -125,18 +129,12 @@ theorem Equiv.prod {n₁ n₂ n: ℕ} {hn: n₁ + n₂ = n}
 
 theorem sel_sel_and (φ ψ: Filter T n) [DecidablePred φ] [DecidablePred ψ] (q: Query T n) :
     Equiv (Sel φ (Sel ψ q)) (Sel (Filter.and φ ψ) q) := by
-  unfold Equiv Query.toRelation
-  simp [Query.toRelation, Filter.and, Multiset.filter_filter]
+  simp [Equiv, Query.toRelation, Filter.and, Multiset.filter_filter]
 
 theorem sel_comm (φ ψ: Filter T n) [DecidablePred φ] [DecidablePred ψ] (q: Query T n) :
     Equiv (Sel φ (Sel ψ q)) (Sel ψ (Sel φ q)) := by
-  refine Equiv.trans' (sel_sel_and φ ψ q) ?_
-  refine Equiv.trans' ?_ (Equiv.symm' (sel_sel_and ψ φ q))
   unfold Equiv Query.toRelation
-  apply Multiset.filter_congr
-  intro _ _
-  simp only [Filter.and]
-  exact And.comm
+  simp [Query.toRelation, Multiset.filter_filter, and_comm]
 
 
 lemma Multiset.filter_product_left {α β : Type}
@@ -165,7 +163,7 @@ lemma Multiset.filter_product_left {α β : Type}
 
 private lemma Filter.castLE_eval_append
     {n₁ n₂: ℕ} (φ: Filter T n₁) (a: Tuple T n₁) (b: Tuple T n₂) :
-    (Filter.castLE (Nat.le_add_right n₁ n₂) φ) (Fin.append a b) = φ a := by
+    (Filter.castLE (rfl : n₁ + n₂ = n₁ + n₂) φ) (Fin.append a b) = φ a := by
   rw [Filter.castLE_pred]
   congr 1
   funext i
@@ -176,7 +174,7 @@ theorem sel_prod_pushdown_left
     {n₁ n₂ n: ℕ} (hn: n₁ + n₂ = n)
     (φ: Filter T n₁) [DecidablePred φ] (q₁: Query T n₁) (q₂: Query T n₂) :
     Equiv
-      (Sel (Filter.castLE (hn ▸ Nat.le_add_right n₁ n₂) φ)
+      (Sel (Filter.castLE hn φ)
            (@Query.Prod T n₁ n₂ n hn q₁ q₂))
       (@Query.Prod T n₁ n₂ n hn (Sel φ q₁) q₂) := by
   unfold Equiv
@@ -221,10 +219,10 @@ theorem sel_join_pushdown_left
     (ψ: Filter T n₁) [DecidablePred ψ] (φ: Filter T n) [DecidablePred φ]
     (q₁: Query T n₁) (q₂: Query T n₂) :
     Equiv
-      (Sel (Filter.castLE (hn ▸ Nat.le_add_right n₁ n₂) ψ)
+      (Sel (Filter.castLE hn ψ)
            (Sel φ (@Query.Prod T n₁ n₂ n hn q₁ q₂)))
       (Sel φ (@Query.Prod T n₁ n₂ n hn (Sel ψ q₁) q₂)) := by
-  refine Equiv.trans' (sel_comm _ _ _) ?_
+  refine Equiv.trans (sel_comm _ _ _) ?_
   exact Equiv.sel φ (sel_prod_pushdown_left hn ψ q₁ q₂)
 
 end Query
