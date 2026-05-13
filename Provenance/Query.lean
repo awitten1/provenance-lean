@@ -44,40 +44,43 @@ def BoolTerm.evalDecidable (φ: BoolTerm T n) : DecidablePred φ.eval :=
     . exact inferInstanceAs (Decidable (y.eval t ≤ x.eval t))
     . exact inferInstanceAs (Decidable (y.eval t < x.eval t))
 
-inductive Filter (T) (n: ℕ) where
-| BT   : BoolTerm T n → Filter T n
-| Not  : Filter T n → Filter T n
-| And  : Filter T n → Filter T n → Filter T n
-| Or   : Filter T n → Filter T n → Filter T n
-| True : Filter T n
+abbrev Filter (T) (n: ℕ) := Tuple T n → Prop
 
-def Filter.eval (φ: Filter T n) (tuple: Tuple T n) := match φ with
-| BT  φ     => φ.eval tuple
-| Not φ     => ¬ (φ.eval tuple)
-| And φ₁ φ₂ => (φ₁.eval tuple) ∧ (φ₂.eval tuple)
-| Or  φ₁ φ₂ => (φ₁.eval tuple) ∨ (φ₂.eval tuple)
-| True      => true
+namespace Filter
 
-def Filter.evalDecidable (φ : Filter T n) : DecidablePred φ.eval :=
-  λ t => match φ with
-    | Filter.BT φ       => φ.evalDecidable t
-    | Filter.Not φ      => match φ.evalDecidable t with
-      | isTrue h  => isFalse (by simp [Filter.eval, h])
-      | isFalse h => isTrue  (by simp [Filter.eval, h])
-    | Filter.And φ₁ φ₂  => match φ₁.evalDecidable t, φ₂.evalDecidable t with
-      | isTrue h₁, isTrue h₂   => isTrue  (by simp [Filter.eval, h₁, h₂])
-      | isFalse h, _ | _, isFalse h => isFalse (by simp [Filter.eval, h])
-    | Filter.Or φ₁ φ₂   => match φ₁.evalDecidable t, φ₂.evalDecidable t with
-      | isTrue h, _ | _, isTrue h => isTrue (by simp [Filter.eval, h])
-      | isFalse h₁, isFalse h₂    => isFalse (by simp [Filter.eval, h₁, h₂])
-    | Filter.True       => isTrue (rfl)
+def and (φ ψ: Filter T n) : Filter T n :=
+  fun tuple => φ tuple ∧ ψ tuple
+
+instance andDecidable (φ ψ: Filter T n) [DecidablePred φ] [DecidablePred ψ] :
+    DecidablePred (and φ ψ) :=
+  fun tuple => by
+    unfold and
+    exact inferInstanceAs (Decidable (φ tuple ∧ ψ tuple))
+
+def true : Filter T n :=
+  fun _ => True
+
+instance trueDecidable : DecidablePred (@true T n) :=
+  fun tuple => by
+    unfold true
+    exact isTrue trivial
+
+def ofBoolTerm (φ: BoolTerm T n) : Filter T n :=
+  fun tuple => φ.eval tuple
+
+instance ofBoolTermDecidable (φ: BoolTerm T n) : DecidablePred (ofBoolTerm φ) :=
+  fun tuple => by
+    unfold ofBoolTerm
+    exact φ.evalDecidable tuple
+
+end Filter
 
 inductive Query (T : Type) : ℕ → Type where
 | Rel   : (n : ℕ) → Relation T n → Query T n
-| Sel   : Filter T n → Query T n → Query T n
+| Sel   : (φ : Filter T n) → [DecidablePred φ] → Query T n → Query T n
 | Prod {n₁ n₂ n : ℕ} {hn : n₁ + n₂ = n} : Query T n₁ → Query T n₂ → Query T n
 
 def Query.toRelation (q: Query T n): Relation T n := match q with
 | Query.Rel _ r => r
-| Query.Sel φ q  => @Multiset.filter _ φ.eval φ.evalDecidable q.toRelation
-| @Query.Prod _ _ _ _ hn q₁ q₂ => (q₁.toRelation * q₂.toRelation).cast hn
+| @Query.Sel _ _ φ dec q => @Multiset.filter _ φ dec (Query.toRelation q)
+| @Query.Prod _ _ _ _ hn q₁ q₂ => Relation.cast hn (Query.toRelation q₁ * Query.toRelation q₂)
